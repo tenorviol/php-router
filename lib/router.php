@@ -23,11 +23,11 @@ $default = empty($_SERVER['ROUTER']['404'])    ? null : $_SERVER['ROUTER']['404'
 // normalize the requested uri
 $uri = $_SERVER['REQUEST_URI'];
 $q   = strpos($uri, '?');
-$uri = $q === false ? $uri : substr($uri, 0, $q);           // remove querystring
-$uri = urldecode($uri);                                     // undo uri encoding
-$uri = preg_replace('#//+#', '/', $uri);                    // remove multi slashes
-$uri = preg_replace('#(^|/)\\.(/|$)#', '/', $uri);          // remove self directories
-$uri = preg_replace('#(/[^/]+)?/\\.\\.(/|$)#', '/', $uri);  // remove parent directories
+$uri = $q === false ? $uri : substr($uri, 0, $q);            // remove querystring
+$uri = urldecode($uri);                                      // undo uri encoding
+$uri = preg_replace('#//+#', '/', $uri);                     // remove multi slashes
+$uri = preg_replace('#(^|/)\\.(?=/|$)#', '', $uri);          // remove self directories
+$uri = preg_replace('#(/[^/]+)?/\\.\\.(?=/|$)#', '', $uri);  // remove parent directories
 
 // output uri
 $_SERVER['ROUTER']['uri'] = $uri;
@@ -42,13 +42,14 @@ if ($prefix) {
 }
 
 // dissect route
-$route = $uri[0] === '/' ? substr($uri, 1) : $uri;  // leading slash
+$route = isset($uri[0]) && $uri[0] === '/' ? substr($uri, 1) : $uri;  // leading slash
 $route = explode('/', $route);
 
 // output route
 $_SERVER['ROUTER']['route'] = $route;
 
-$route = array_map('strtolower', $route);  // lower-case filenames
+// lower-case filenames
+$route = array_map('strtolower', $route);
 
 // binary find largest route directory
 $low  = 0;
@@ -85,7 +86,7 @@ if (!$script) {
 $_SERVER['ROUTER']['script'] = $script;
 
 if (!$script) {
-  throw new RuntimeException("No route script found for uri, '$uri'", E_USER_WARNING);
+  throw new RuntimeException("No route script found for uri, '$uri'");
 }
 
 // run script
