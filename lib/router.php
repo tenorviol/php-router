@@ -1,6 +1,6 @@
 <?php
 /**
- * Runs the script in the root directory most closely matching the request uri.
+ * Runs a script in the root directory most closely matching the request uri.
  *
  * Inputs:
  *
@@ -16,68 +16,92 @@
  */
 
 // input
+$uri     = $_SERVER['REQUEST_URI'];
 $root    = $_SERVER['ROUTER']['root'];
 $prefix  = empty($_SERVER['ROUTER']['prefix']) ? null : $_SERVER['ROUTER']['prefix'];
 $default = empty($_SERVER['ROUTER']['404'])    ? null : $_SERVER['ROUTER']['404'];
 
-// normalize the requested uri
-$uri = $_SERVER['REQUEST_URI'];
+// remove prefix from uri
+if ($prefix) {
+  $len = strlen($prefix);
+  if (strncasecmp($uri, $prefix, $len) !== 0) {
+    throw new RuntimeException("Request uri, '$uri', does not match expected prefix, '$prefix'", 500);
+  }
+  $uri = substr($uri, $len);
+  if ($uri === false) {  // request uri === prefix
+    $uri = '/';
+  }
+}
+
+// ensure uri begins with leading slash
+if ($uri[0] !== '/') {
+  throw new RuntimeException("Request uri, '$uri', must begin with '/'", 500);
+}
+
+// normalize uri
 $q   = strpos($uri, '?');
 $uri = $q === false ? $uri : substr($uri, 0, $q);            // remove querystring
-$uri = urldecode($uri);                                      // undo uri encoding
+$uri = urldecode($uri);                                      // remove uri encoding
 $uri = preg_replace('#//+#', '/', $uri);                     // remove multi slashes
 $uri = preg_replace('#(^|/)\\.(?=/|$)#', '', $uri);          // remove self directories
 $uri = preg_replace('#(/[^/]+)?/\\.\\.(?=/|$)#', '', $uri);  // remove parent directories
 
-// output uri
-$_SERVER['ROUTER']['uri'] = $uri;
-
-// remove route prefix from uri
-if ($prefix) {
-  $len = strlen($prefix);
-  if (strncasecmp($uri, $prefix, $len) !== 0) {
-    throw new RuntimeException("Request uri, '$uri', does not match expected prefix, '$prefix'");
-  }
-  $uri = substr($uri, $len);
+// filter non-utf8
+// http://www.w3.org/International/questions/qa-forms-utf-8.en.php
+if (!preg_match('/^('
+      ."[\x20-\x7E]"                         # ASCII
+      ."|[\xC2-\xDF][\x80-\xBF]"             # non-overlong 2-byte
+      ."|\xE0[\xA0-\xBF][\x80-\xBF]"         # excluding overlongs
+      ."|[\xE1-\xEC\xEE\xEF][\x80-\xBF]{2}"  # straight 3-byte
+      ."|\xED[\x80-\x9F][\x80-\xBF]"         # excluding surrogates
+      ."|\xF0[\x90-\xBF][\x80-\xBF]{2}"      # planes 1-3
+      ."|[\xF1-\xF3][\x80-\xBF]{3}"          # planes 4-15
+      ."|\xF4[\x80-\x8F][\x80-\xBF]{2}"      # plane 16
+      .')*$/', $uri)) {
+  throw new RuntimeException("Request uri, '$uri', contains an invalid utf8 sequence", 500);
 }
 
-// dissect route
-$route = isset($uri[0]) && $uri[0] === '/' ? substr($uri, 1) : $uri;  // leading slash
-$route = explode('/', $route);
+// route
+$route = explode('/', $uri);
 
 // output route
-$_SERVER['ROUTER']['route'] = $route;
+$_SERVER['ROUTER']['route']    = $route;
+$_SERVER['ROUTER']['route'][0] = $uri;   // 0 element holds the full uri
 
 // lower-case filenames
-$route = array_map('strtolower', $route);
+$route = array_map('strtolower', $route);  
+$route[0] = $root;
 
 // binary find largest route directory
-$low  = 0;
+$low  = 1;
 $high = count($route);
 while ($high > $low) {
   $mid = $low + (int)ceil(($high - $low) / 2);
-  $dir = $root.'/'.implode('/', array_slice($route, 0, $mid));
+  $dir = implode('/', array_slice($route, 0, $mid));
   if (is_dir($dir)) {
     $low = $mid;
   } else {
     $high = $mid - 1;
   }
 }
-$dir = $root.'/'.implode('/', array_slice($route, 0, $low));
+$dir = implode('/', array_slice($route, 0, $low));
 
-// find a suitable script
+// named script
 $script = null;
 if (isset($route[$low])) {
-  $path = $dir.$route[$low].'.php';
+  $path = $dir.'/'.$route[$low].'.php';
   if (file_exists($path)) {
     $script = $path;
   }
 }
+
+// index script
 if (!$script) {
   $path = "$dir/index.php";
   if (file_exists($path)) {
     $script = $path;
   } else {
+    // default script
     $script = $default;
   }
 }
@@ -86,7 +110,7 @@ if (!$script) {
 $_SERVER['ROUTER']['script'] = $script;
 
 if (!$script) {
-  throw new RuntimeException("No route script found for uri, '$uri'");
+  throw new RuntimeException("No route for uri, '$uri'", 404);
 }
 
 // run script

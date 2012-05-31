@@ -17,22 +17,20 @@ class routerTest extends PHPUnit_Framework_TestCase {
       array('/./././.', ROOT),
       array('/dump', json_encode(array(
         'root'   => ROOT,
-        'uri'    => '/dump',
-        'route'  => array('dump'),
+        'route'  => array('/dump', 'dump'),
         'script' => ROOT.'/dump.php',
       ))),
       array('/Dump/foobie/12345?orange=banana', json_encode(array(
         'root'   => ROOT,
-        'uri'    => '/Dump/foobie/12345',
-        'route'  => array('Dump', 'foobie', '12345'),
+        'route'  => array('/Dump/foobie/12345', 'Dump', 'foobie', '12345'),
         'script' => ROOT.'/dump.php',
       ))),
       array('/nowhere/../Dump/foobie/12345?orange=banana', json_encode(array(
         'root'   => ROOT,
-        'uri'    => '/Dump/foobie/12345',
-        'route'  => array('Dump', 'foobie', '12345'),
+        'route'  => array('/Dump/foobie/12345', 'Dump', 'foobie', '12345'),
         'script' => ROOT.'/dump.php',
       ))),
+      array('/中国', 'Middle Land'),
     );
   }
 
@@ -41,8 +39,33 @@ class routerTest extends PHPUnit_Framework_TestCase {
    */
   public function testRouter($uri, $output) {
     $_SERVER['REQUEST_URI'] = $uri;
-    $this->expectOutputString($output);
     $_SERVER['ROUTER'] = array('root' => ROOT);
+    $this->expectOutputString($output);
+    include LIB.'/router.php';
+  }
+
+  /**
+   * @dataProvider routeTests
+   */
+  public function testRouterWithPrefix($uri, $output) {
+    $prefix = '/'.uniqid();
+    $_SERVER['REQUEST_URI'] = $prefix.$uri;
+    $_SERVER['ROUTER'] = array(
+      'root'   => ROOT,
+      'prefix' => $prefix,
+    );
+    $this->expectOutputString($output);
+    include LIB.'/router.php';
+  }
+
+  public function testRouterWithPrefixButNoSuffix() {
+    $prefix = '/'.uniqid();
+    $_SERVER['REQUEST_URI'] = $prefix;
+    $_SERVER['ROUTER'] = array(
+      'root'   => ROOT,
+      'prefix' => $prefix,
+    );
+    $this->expectOutputString(ROOT);
     include LIB.'/router.php';
   }
 
@@ -61,6 +84,17 @@ class routerTest extends PHPUnit_Framework_TestCase {
    */
   public function testRouterNoRoute() {
     $_SERVER['REQUEST_URI'] = '/nowhere';
+    $_SERVER['ROUTER'] = array(
+      'root' => __DIR__,
+    );
+    include LIB.'/router.php';
+  }
+
+  /**
+   * @expectedException RuntimeException
+   */
+  public function testImproperPrefix() {
+    $_SERVER['REQUEST_URI'] = '../lib/router.php';
     $_SERVER['ROUTER'] = array(
       'root' => __DIR__,
     );
